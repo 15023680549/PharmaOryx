@@ -36,8 +36,6 @@ def iselement():
 
 #验证
 def yz():
-    # 下载验证滑块图片 一直滑动到登录上为止
-    download_yzm()
     # 计算滑动位置
     jl = identify_gap('bg.png', 'bg1.png', 'out.png')
     # 滑块
@@ -63,6 +61,9 @@ def login():
     driver.find_element_by_id('username').send_keys('15023680549')
     driver.find_element_by_id('password').send_keys('19920211.jY')
     while(True):
+        # 下载验证滑块图片 一直滑动到登录上为止
+        download_yzm()
+        #滑动验证
         yz()
         #判断元素是否存在
         istc = iselement()
@@ -105,8 +106,8 @@ def identify_gap(bg, tp, out):
     bg_img = cv2.imread(bg)  # 背景图片
     tp_img = cv2.imread(tp)  # 缺口图片
     # 识别图片边缘
-    bg_edge = cv2.Canny(bg_img, 100, 10)
-    tp_edge = cv2.Canny(tp_img, 100, 200)
+    bg_edge = cv2.Canny(bg_img, 10, 10)
+    tp_edge = cv2.Canny(tp_img, 50, 80)
     # 转换图片格式
     bg_pic = cv2.cvtColor(bg_edge, cv2.COLOR_GRAY2RGB)
     tp_pic = cv2.cvtColor(tp_edge, cv2.COLOR_GRAY2RGB)
