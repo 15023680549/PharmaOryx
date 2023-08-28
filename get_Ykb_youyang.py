@@ -7,7 +7,7 @@ from selenium.common import exceptions
 import time
 import json
 from lxml import etree
-from multiprocessing import Pool
+from multiprocessing import Pool, Manager
 from csv import reader
 import aiohttp
 import asyncio
@@ -25,29 +25,65 @@ from selenium.webdriver.common.by import By
 
 urls=[]
 htmls=[]
-sem=asyncio.Semaphore(2) #信号量，控制协程数量，防止爬的过快
-#conn=pymysql.connect(host='',user='',password='',port='',db='',charset='')
-config={
-    'creator':pymysql,
-    'host':"",
-    'port':"3306",
-    'user':"",
-    'password':"",
-    'db':"",
-    'charset':"utf8",
-    'maxconnections':70, #连接池最大连接数
-    'cursorclass':pymysql.cursors.DictCursor
+sem=asyncio.Semaphore(10) #信号量，控制协程数量，防止爬的过快
+
+#是否收费
+sfdict = {
+    '0':'否',
+    '1':'是'
 }
-#pool=pymysql(**config)
-#conn=pool.connection()
-#cursor=conn.cursor()
 
-#cursor.execute("SELECT VERSION()")
+#办理形式
+blxsdict = {
+    '1':'窗口办理',
+    '2':'网上办理',
+    '3':'快递申请',
+    '1^2':'窗口办理,网上办理',
+    '1^3':'窗口办理,快递申请',
+    '1^2^3':'窗口办理,网上办理,快递申请',
+    '2^3':'网上办理,快递申请',
+}
 
-#cursor.close()
-#conn.close()
-#print('链接数据库成功!')
-#cursor=conn.cursor()
+#层级
+cjdict = {
+    '4':'县级'
+}
+#事项类型字典
+sxdict = {
+'20':'公共服务',
+'10':'其他行政权力',
+'09':'行政裁决',
+'08':'行政奖励',
+'07':'行政确认',
+'06':'行政检查',
+'05':'行政给付',
+'04':'行政征收',
+'03':'行政强制',
+'02':'行政处罚',
+'01':'行政许可'
+}
+# conn=pymysql.connect(host='',user='',password='',port='',db='',charset='')
+# config={
+#     'creator':pymysql,
+#     'host':"",
+#     'port':"3306",
+#     'user':"root",
+#     'password':"123456",
+#     'db':"",
+#     'charset':"utf8",
+#     'maxconnections':70, #连接池最大连接数
+#     'cursorclass':pymysql.cursors.DictCursor
+# }
+# pool=pymysql(**config)
+# conn=pool.connection()
+# cursor=conn.cursor()
+#
+# cursor.execute("SELECT VERSION()")
+#
+# cursor.close()
+# conn.close()
+# print('链接数据库成功!')
+# cursor=conn.cursor()
 
 #存储数据之csv
 def tocsv(fileNmae,rows):
@@ -56,7 +92,7 @@ def tocsv(fileNmae,rows):
         csv_output.writerows(rows)
 
 def readurl(fileNmae):
-    with open('E:\\work\\djrm\\ykb\\'+fileNmae,'r',encoding='utf-8') as f:
+    with open('E:\\work\\djrm\\ykb\\'+fileNmae,'r',encoding='gbk') as f:
         csv_reader=reader(f)
         list_of_rows=list(csv_reader)
         for i in range(0,len(list_of_rows)):
@@ -74,7 +110,8 @@ async def get_html(url):
             async with session.post('https://ykbapp.cq.gov.cn:8082/gml/web10002',data=data) as resp:  # 提出请求
                 html=await resp.json() #直接获取到bytes
                 htmls.append([html['C-Response-Body'],url[2]])
-                print('异步获取%s下的html.'% url)
+                name=json.loads(html['C-Response-Body'])
+                print('异步获取%s.'% name['name'],url[2])
 
 #协程调用，请求网页
 def main_get_html():
@@ -82,37 +119,57 @@ def main_get_html():
     tasks=[get_html(url) for url in urls]   #把所有任务放入一个列表中
     loop.run_until_complete(asyncio.wait(tasks))    #激活协程
 
-#使用多进程解析html
-def multi_parse_html(html,cnt):
-    url=html[1]
+def parse(html):
+    url = html[1]
     html = json.loads(html[0])
-    #获取内容
-    name = html["name"] #事项名称
-    stype = html["type"] #事项类型
-    orgname = html['orgName']#实施主体
-    exeLevel = html['exeLevel'] #行使层级 4 县级
-    legalFileName = html['legalFileName'] #设定依据
-    handleForm = html['handleForm'] #办理形式
-    isCharge = html['isCharge'] #是否收费 0否
-    collectionType = html['collectionType'] #征收种类
-    matterFileList = html['matterFileList'] #申请材料
-    fname = '' #申请材料
-    for emp in matterFileList:
-        fname=','+emp['fileName']
-    #写入csv文件
+    # 获取内容
+    name = html["name"]  # 事项名称
+    stype = sxdict[html["type"]]  # 事项类型
+    orgname = html['orgName']  # 实施主体
+    exeLevel = html['exeLevel']  # 行使层级 4 县级
+    legalFileName = html['legalFileName']  # 设定依据
+    handleForm = html['handleForm']  # 办理形式
+    isCharge = html['isCharge']  # 是否收费 0否
+    collectionType = html['collectionType']  # 征收种类
+    matterFileList = html['matterFileList']  # 申请材料
+    fname = ''  # 申请材料
+    if(matterFileList!=None):
+        for emp in matterFileList:
+            fname = ',' + emp['fileName']
+        fname=fname[1:]
+    # 写入csv文件
     # str='事项类型<br />'+stype+',实施主体<br />'+orgname+',行使层级</br>'+exeLevel+',办理形式</br>'+handleForm+',是否收费</br>'+isCharge+',征收种类</br>'+collectionType+',设定依据</br>'+legalFileName+',申请材料</br>'+fname
-    str='事项类型<br />'+stype+',实施主体<br />'+orgname+',行使层级</br>'+exeLevel+',办理形式</br>'+handleForm+',是否收费</br>'+isCharge+',设定依据</br>'+legalFileName+',申请材料</br>'+fname
-    rows=[name,url,stype,str]
-    tocsv('酉阳body.csv',[rows])
+    str = '事项类型<br />' + stype + ',实施主体<br />' + orgname
+    if (exeLevel != None):
+        str = str + ',行使层级</br>' + cjdict[exeLevel]
+    if (handleForm != None):
+        str = str + ',办理形式</br>' + blxsdict[handleForm]
+    if(isCharge!=None):
+        str=str+',是否收费</br>' + sfdict[isCharge]
+    if (legalFileName != None):
+        str = str + ',设定依据</br>' + legalFileName
+    if (collectionType != None):
+        str = str + ',征收种类</br>' + collectionType
+    if (fname != ''):
+        str = str + ',申请材料</br>' + fname
+    return [name, url, stype, str]
+
+#使用多进程解析html
+def multi_parse_html(html,cnt,rows):
+    try:
+        list = parse(html)
+    except Exception as ex:
+        print(ex,html[0])
+    rows.append(list)
     print('第%d个html-----------date:%s'% (cnt,time.time()))
 
 #多进程调用总函数，解析html
-def main_parse_html():
+def main_parse_html(rows):
     p=Pool(2)
     i=0
     for html in htmls:
         i+=1
-        p.apply_async(multi_parse_html,args=(html,i))
+        p.apply_async(multi_parse_html,args=(html,i,rows))
     p.close()
     p.join()
 
@@ -270,19 +327,9 @@ if __name__ == '__main__':
 
     #读取存储url csv到数组中
     readurl(fileName)
+    #定义多进程共享变量
+    manager = Manager()
+    rows = manager.list()
     main_get_html()
-    main_parse_html()
-
-
-    # i=1
-    # for f in range(1,101):
-    #     for i in range(i,i+10):
-    #         #url = "https://pubchem.ncbi.nlm.nih.gov/rest/pug_view/data/compound/" + str(CID) + "/XML"
-    #         #urls.append(url)
-    #         #get_html2(i)
-    #         print(i)
-    #     start=time.time()
-    #     #main_get_html()
-    #     #main_parse_html()
-    #     print('总耗时:%0.5f秒'% float(time.time()-start))
-    #     i+=1
+    main_parse_html(rows)
+    tocsv('酉阳body.csv', rows)

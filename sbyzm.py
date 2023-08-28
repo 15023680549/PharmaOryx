@@ -20,6 +20,7 @@ from selenium.webdriver.common.action_chains import ActionChains
 import cv2
 from selenium.common import exceptions
 
+
 #判断元素是否存在
 def iselement():
     """
