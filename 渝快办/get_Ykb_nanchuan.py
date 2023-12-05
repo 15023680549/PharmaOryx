@@ -230,10 +230,10 @@ def download_yzm():
     action.release()
     time.sleep(0.2)
     js = '''return document.getElementsByTagName('canvas')[0].toDataURL()'''
-    filename='./bg.png'
+    filename= '../bg.png'
     download_img(filename,js)
     js = '''return document.getElementsByTagName('canvas')[1].toDataURL()'''
-    filename = './bg1.png'
+    filename = '../bg1.png'
     download_img(filename,js)
 
 def identify_gap(bg, tp, out):
